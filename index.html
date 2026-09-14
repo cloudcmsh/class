@@ -171,6 +171,25 @@
             margin-bottom: 2px;
             color: #333;
         }
+        #selBar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #0056b3;
+            margin: 2px 0 4px;
+        }
+        #selCount { font-weight: bold; }
+        #clearSelBtn {
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 12px;
+            cursor: pointer;
+            text-decoration: underline;
+            padding: 2px;
+        }
+        #clearSelBtn:hover { color: #333; }
         .group-label {
             font-size: 12px;
             font-weight: bold;
@@ -360,6 +379,9 @@
                     <option value="">全部班級</option>
                 </select>
             </label>
+            <label>⏰ 節次：
+                <select id="periodSelect" class="control-select"></select>
+            </label>
             <button class="control-btn" id="todayBtn">📆 回到今天</button>
             <button class="control-btn btn-blue" id="syncCloudRosterBtn">☁️ 同步名單</button>
             <button class="control-btn" id="syncTodayBtn">🔄 重新整理</button>
@@ -381,7 +403,11 @@
             </div>
 
             <div class="right-panel">
-                <div class="right-panel-title">紀錄事項 (先點左側學生)</div>
+                <div class="right-panel-title">紀錄事項 (可多選左側學生)</div>
+                <div id="selBar">
+                    <span id="selCount">已選 0 人</span>
+                    <button id="clearSelBtn" type="button">清除選取</button>
+                </div>
 
                 <div class="group-label deduct">➖ 扣分指標</div>
                 <div id="deductButtons"></div>
@@ -411,6 +437,11 @@
                     <option value="">全部座號</option>
                 </select>
             </label>
+            <label>⏰ 節次：
+                <select id="viewPeriodFilter" class="control-select">
+                    <option value="">全部節次</option>
+                </select>
+            </label>
         </div>
 
         <div id="summaryBar" class="summary-bar"></div>
@@ -434,6 +465,7 @@
                         <th onclick="sortTable(3)">姓名 <span class="sort-icon"></span></th>
                         <th onclick="sortTable(4)">類型 <span class="sort-icon"></span></th>
                         <th onclick="sortTable(5)">項目 <span class="sort-icon"></span></th>
+                        <th onclick="sortTable(6)">節次 <span class="sort-icon"></span></th>
                         <th>操作</th>
                     </tr>
                 </thead>
@@ -470,6 +502,10 @@
             <label style="display:block; margin-bottom:5px; font-weight:bold;">項目：</label>
             <select id="editItem" class="control-select" style="width: 100%; box-sizing:border-box;"></select>
         </div>
+        <div style="margin-bottom: 15px;">
+            <label style="display:block; margin-bottom:5px; font-weight:bold;">節次：</label>
+            <select id="editPeriod" class="control-select" style="width: 100%; box-sizing:border-box;"></select>
+        </div>
         <div style="display: flex; gap: 10px; margin-top: 20px;">
             <button class="control-btn" id="saveEditBtn" style="flex:1; background-color: #007bff; color: white;">儲存修改</button>
             <button class="control-btn" onclick="document.getElementById('editModal').style.display='none'" style="flex:1;">取消</button>
@@ -487,6 +523,49 @@
     const DEDUCT_ITEMS = ['睡覺', '講話', '使用手機'];   // 扣分（紅）
     const ADD_ITEMS    = ['積極回答', '態度認真'];        // 加分（藍）
 
+    /*** 節次時間表：每節課為 HH:10 ~ (HH+1):00。
+     *   數字是該節的「起始小時」，例：第3節 = 10 → 10:10~11:00。
+     *   若貴校鐘聲不同，改這裡即可（可自由增減節次）。***/
+    const PERIOD_HOURS = {
+        '第1節': 8,  '第2節': 9,  '第3節': 10, '第4節': 11,
+        '第5節': 13, '第6節': 14, '第7節': 15, '第8節': 16
+    };
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    // 依現在時間推算節次：分鐘 >=10 屬當前小時那節，<10(含整點) 屬前一節
+    function autoPeriodTag(now) {
+        const ph = now.getMinutes() >= 10 ? now.getHours() : now.getHours() - 1;
+        for (const k in PERIOD_HOURS) if (PERIOD_HOURS[k] === ph) return k;
+        return `${pad2(ph)}:10時段`; // 不在課表內的時段
+    }
+    // 目前選定的節次標籤（空值 = 自動）
+    function currentPeriodTag() {
+        const v = document.getElementById('periodSelect').value;
+        return v ? v : autoPeriodTag(new Date());
+    }
+    function buildPeriodOptions() {
+        const sel = document.getElementById('periodSelect');
+        let html = '<option value="">自動（依現在時間）</option>';
+        for (const k in PERIOD_HOURS) {
+            const h = PERIOD_HOURS[k];
+            html += `<option value="${k}">${k}（${pad2(h)}:10~${pad2(h + 1)}:00）</option>`;
+        }
+        sel.innerHTML = html;
+    }
+    // 給編輯視窗用的節次下拉（含「未指定」）
+    function periodOptionsHtml(current) {
+        let html = `<option value="">未指定</option>`;
+        for (const k in PERIOD_HOURS) {
+            const h = PERIOD_HOURS[k];
+            html += `<option value="${k}"${k === current ? ' selected' : ''}>${k}（${pad2(h)}:10~${pad2(h + 1)}:00）</option>`;
+        }
+        if (current && !(current in PERIOD_HOURS)) {
+            html += `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)}</option>`;
+        }
+        return html;
+    }
+
     function categoryOf(item) {
         if (ADD_ITEMS.indexOf(item) !== -1) return '加分';
         if (DEDUCT_ITEMS.indexOf(item) !== -1) return '扣分';
@@ -494,7 +573,7 @@
     }
 
     let students = [];            // [{classId, seat, name}]
-    let selectedStudent = null;   // {classId, seat, name, element}
+    const selectedMap = new Map();  // studentKey -> {classId, seat, name, element}
     let currentSyncId = 0;
     let historyData = [];
     let isBusy = false;
@@ -607,6 +686,7 @@
     document.addEventListener("DOMContentLoaded", () => {
         dateInput.valueAsDate = new Date();
         lastLoadedDate = dateInput.value;
+        buildPeriodOptions();
         renderPointButtons();
         staleRecords = loadRecordsFromLS();
         loadStudentsFromLocal();
@@ -738,7 +818,7 @@
         const list = currentClassStudents();
         if (list.length === 0) {
             studentListBody.innerHTML = '<tr><td colspan="3">請點「☁️ 同步名單」或先選擇班級</td></tr>';
-            selectedStudent = null;
+            clearSelectedStudents();
             return;
         }
 
@@ -760,35 +840,124 @@
             tr.appendChild(tdStatus);
 
             tr.addEventListener('click', function(e) {
-                if (e.target.closest('.rm')) return; // 點 × 移除待送出時不選列
-                document.querySelectorAll('.student-table tr').forEach(row => row.classList.remove('selected'));
-                this.classList.add('selected');
-                selectedStudent = { classId: this.dataset.class, seat: this.dataset.seat, name: this.dataset.name, element: this };
+                if (e.target.closest('.rm')) return; // 點 × 移除待送出時不切換選取
+                const key = studentKey(this.dataset.class, this.dataset.seat);
+                if (selectedMap.has(key)) {
+                    selectedMap.delete(key);
+                    this.classList.remove('selected');
+                } else {
+                    selectedMap.set(key, {
+                        classId: this.dataset.class, seat: this.dataset.seat,
+                        name: this.dataset.name, element: this
+                    });
+                    this.classList.add('selected');
+                }
+                updateSelectedCount();
             });
             studentListBody.appendChild(tr);
         });
-        selectedStudent = null;
+        clearSelectedStudents();
     }
+
+    // --- 多選學生 ---
+    function updateSelectedCount() {
+        const el = document.getElementById('selCount');
+        if (el) el.textContent = `已選 ${selectedMap.size} 人`;
+    }
+    function clearSelectedStudents() {
+        selectedMap.clear();
+        document.querySelectorAll('.student-table tr.selected').forEach(r => r.classList.remove('selected'));
+        updateSelectedCount();
+    }
+    document.getElementById('clearSelBtn').addEventListener('click', clearSelectedStudents);
 
     // --- 加扣分：暫存 + 批次送出（同一學生可累積多筆）---
     // pending: [{uid, classId, seat, name, category, item}]
     let pending = [];
     let pendingUid = 0;
 
+    // 解析試算表時間戳記（容忍 ISO、"2026/9/14 上午10:15:30"、"下午" 等格式）
+    function parseTimestamp(s) {
+        if (!s) return null;
+        s = String(s).trim();
+        let ampm = 0; // 1=上午, 2=下午
+        if (s.indexOf('上午') >= 0) { ampm = 1; s = s.replace('上午', ''); }
+        else if (s.indexOf('下午') >= 0) { ampm = 2; s = s.replace('下午', ''); }
+        s = s.trim();
+        const m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})[ T]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+        if (m) {
+            let hh = +m[4];
+            if (ampm === 2 && hh < 12) hh += 12;
+            if (ampm === 1 && hh === 12) hh = 0;
+            return new Date(+m[1], +m[2] - 1, +m[3], hh, +m[5], +(m[6] || 0));
+        }
+        const d = new Date(s.replace(/-/g, '/'));
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    // 節次識別鍵（供舊資料無節次時，用時間戳記推算）：一節課為 HH:10 ~ (HH+1):00
+    function periodKeyOf(dt) {
+        if (!dt || isNaN(dt.getTime())) return null;
+        const ph = dt.getMinutes() >= 10 ? dt.getHours() : dt.getHours() - 1;
+        return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}#${ph}`;
+    }
+
+    // 該生「本節」是否已有此項目（未送出的 pending + 已送出且同節的紀錄都算）
+    function alreadyHasItem(classId, seat, item, periodTag) {
+        const dateStr = dateInput.value;
+        // 未送出：同學生 + 同項目 + 同節次
+        if (pending.some(p => sameStudent(p.classId, p.seat, classId, seat) && p.item === item && p.period === periodTag)) return true;
+
+        const nowKey = periodKeyOf(new Date());
+        const records = getAnyRecords();
+        if (Array.isArray(records)) {
+            for (let i = 0; i < records.length; i++) {
+                const row = records[i];
+                if (isHeaderRow(row)) continue;
+                if (String(row[6]).trim() !== item) continue;
+                if (!sameStudent(row[2], row[3], classId, seat)) continue;
+                const recPeriod = String(row[8] == null ? '' : row[8]).trim();
+                if (recPeriod) {
+                    // 有存節次：同日期 + 同節次才算重複
+                    if (recPeriod === periodTag && isSameDate(row[1], dateStr)) return true;
+                } else {
+                    // 舊資料無節次：退回用時間戳記推算（僅即時登錄情境有意義）
+                    if (periodKeyOf(parseTimestamp(row[0])) === nowKey) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // 點紀錄事項：套用到所有已選學生。
+    // 加分項可重複累計；扣分項同一人「同一節課」只記一次（避免誤按重複）。
     function addPoint(item) {
         if (isBusy) return;
-        if (!selectedStudent) { showMsg('請先從左側名單點選學生！', 'red'); return; }
+        if (selectedMap.size === 0) { showMsg('請先從左側名單點選學生（可多選）！', 'red'); return; }
         const category = categoryOf(item);
-        pending.push({
-            uid: ++pendingUid,
-            classId: selectedStudent.classId,
-            seat: selectedStudent.seat,
-            name: selectedStudent.name,
-            category: category,
-            item: item
+        const periodTag = currentPeriodTag();
+        let added = 0, skipped = 0;
+
+        selectedMap.forEach(stu => {
+            if (category === '扣分' && alreadyHasItem(stu.classId, stu.seat, item, periodTag)) {
+                skipped++;
+                return;
+            }
+            pending.push({
+                uid: ++pendingUid,
+                classId: stu.classId, seat: stu.seat, name: stu.name,
+                category: category, item: item, period: periodTag
+            });
+            added++;
+            refreshStatusCell(stu.element);
         });
-        refreshStatusCell(selectedStudent.element);
         updatePendingUI();
+
+        if (selectedMap.size > 1 || skipped > 0) {
+            let msg = `已記錄 ${added} 人「${item}」`;
+            if (skipped > 0) msg += `，略過 ${skipped} 人 (本節已記此扣分)`;
+            showMsg(msg, skipped > 0 ? '#d9822b' : 'green');
+        }
     }
 
     function removePending(uid) {
@@ -886,7 +1055,7 @@
         if (pending.length === 0) { showMsg('沒有需要送出的變更', 'blue'); return; }
         const dateVal = dateInput.value;
         const entries = pending.map(p => ({
-            classId: p.classId, seat: p.seat, name: p.name, category: p.category, item: p.item, note: ''
+            classId: p.classId, seat: p.seat, name: p.name, category: p.category, item: p.item, period: p.period || '', note: ''
         }));
 
         setBusy(true);
@@ -1018,6 +1187,7 @@
         renderHistoryTable();
     });
     document.getElementById('viewSeatFilter').addEventListener('change', renderHistoryTable);
+    document.getElementById('viewPeriodFilter').addEventListener('change', renderHistoryTable);
 
     // 檢視頁的班級/座號下拉：資料來源同時考慮「名單」與「已存在的紀錄」
     function updateViewFilterOptions() {
@@ -1033,6 +1203,24 @@
             classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
         classSel.value = curClass || '';
         updateSeatFilterForClass();
+        updatePeriodFilterOptions();
+    }
+
+    // 節次下拉：先照課表順序列出，再補上紀錄中出現、但不在課表內的節次（如午休時段）
+    function updatePeriodFilterOptions() {
+        const sel = document.getElementById('viewPeriodFilter');
+        const cur = sel.value;
+        const scheduled = Object.keys(PERIOD_HOURS);
+        const present = new Set();
+        historyData.forEach(r => { if (r.period) present.add(r.period); });
+
+        const ordered = scheduled.filter(p => present.has(p));       // 課表內且有紀錄
+        const extras = [...present].filter(p => scheduled.indexOf(p) === -1).sort(); // 課表外
+        const list = ordered.concat(extras);
+
+        sel.innerHTML = '<option value="">全部節次</option>' +
+            list.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+        sel.value = list.indexOf(cur) !== -1 ? cur : '';
     }
 
     function updateSeatFilterForClass() {
@@ -1156,9 +1344,11 @@
         let filtered = [...historyData];
         const fClass = document.getElementById('viewClassFilter').value;
         const fSeat = document.getElementById('viewSeatFilter').value;
+        const fPeriod = document.getElementById('viewPeriodFilter').value;
 
         if (fClass) filtered = filtered.filter(i => classKey(i.classId) === classKey(fClass));
         if (fSeat)  filtered = filtered.filter(i => seatKey(i.seat) === seatKey(fSeat));
+        if (fPeriod) filtered = filtered.filter(i => i.period === fPeriod);
 
         if (currentSortCol !== -1) {
             filtered.sort((a, b) => {
@@ -1171,6 +1361,7 @@
                 else if (currentSortCol === 3) { valA = a.name; valB = b.name; }
                 else if (currentSortCol === 4) { valA = a.category; valB = b.category; }
                 else if (currentSortCol === 5) { valA = a.item; valB = b.item; }
+                else if (currentSortCol === 6) { valA = a.period; valB = b.period; }
                 if (valA < valB) return sortAsc ? -1 : 1;
                 if (valA > valB) return sortAsc ? 1 : -1;
                 return a.seatNum - b.seatNum;
@@ -1181,7 +1372,7 @@
         const recordsBody = document.getElementById('recordsBody');
 
         if (filtered.length === 0) {
-            recordsBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">無符合條件的紀錄</td></tr>';
+            recordsBody.innerHTML = '<tr><td colspan="9" style="text-align:center;">無符合條件的紀錄</td></tr>';
         } else {
             recordsBody.innerHTML = filtered.map(item => {
                 const catCls = item.category === '加分' ? 'cat-add' : 'cat-deduct';
@@ -1194,8 +1385,9 @@
                         <td>${escapeHtml(item.name)}</td>
                         <td class="${catCls}">${escapeHtml(item.category)}</td>
                         <td class="${catCls}">${escapeHtml(item.item)}</td>
+                        <td>${escapeHtml(item.period)}</td>
                         <td>
-                            <button class="action-btn-small edit-btn" data-action="edit" data-row="${item.rowIdx}" data-date="${escapeHtml(item.rawDate)}" data-class="${escapeHtml(item.classId)}" data-seat="${escapeHtml(item.seat)}" data-name="${escapeHtml(item.name)}" data-item="${escapeHtml(item.item)}">編輯</button>
+                            <button class="action-btn-small edit-btn" data-action="edit" data-row="${item.rowIdx}" data-date="${escapeHtml(item.rawDate)}" data-class="${escapeHtml(item.classId)}" data-seat="${escapeHtml(item.seat)}" data-name="${escapeHtml(item.name)}" data-item="${escapeHtml(item.item)}" data-period="${escapeHtml(item.period)}">編輯</button>
                             <button class="action-btn-small del-btn" data-action="delete" data-row="${item.rowIdx}" data-name="${escapeHtml(item.name)}" data-item="${escapeHtml(item.item)}" data-display="${escapeHtml(item.displayDate)}">刪除</button>
                         </td>
                     </tr>`;
@@ -1223,7 +1415,7 @@
         const btn = e.target.closest('button[data-action]');
         if (!btn) return;
         if (btn.dataset.action === 'edit') {
-            openEditModal(btn.dataset.row, btn.dataset.date, btn.dataset.class, btn.dataset.seat, btn.dataset.name, btn.dataset.item);
+            openEditModal(btn.dataset.row, btn.dataset.date, btn.dataset.class, btn.dataset.seat, btn.dataset.name, btn.dataset.item, btn.dataset.period);
         } else if (btn.dataset.action === 'delete') {
             deleteRecord(btn.dataset.row, btn.dataset.name, btn.dataset.item, btn.dataset.display);
         }
@@ -1241,7 +1433,7 @@
         const recordsBody = document.getElementById('recordsBody');
         if (!Array.isArray(records) || records.length === 0) {
             historyData = [];
-            recordsBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">尚無紀錄</td></tr>';
+            recordsBody.innerHTML = '<tr><td colspan="9" style="text-align:center;">尚無紀錄</td></tr>';
             updateViewFilterOptions();
             renderSummary([]);
             return;
@@ -1260,7 +1452,8 @@
                 seatNum: parseInt(row[3]) || 0,
                 name: row[4] || '',
                 category: row[5] || categoryOf(row[6]) || '',
-                item: row[6] || ''
+                item: row[6] || '',
+                period: String(row[8] == null ? '' : row[8]).trim()
             });
         }
         historyData = valid;
@@ -1296,7 +1489,7 @@
         } catch (error) {
             toggleLoading(false);
             if (!existing) {
-                document.getElementById('recordsBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:red;">載入失敗</td></tr>';
+                document.getElementById('recordsBody').innerHTML = '<tr><td colspan="9" style="text-align:center; color:red;">載入失敗</td></tr>';
             }
             setHistoryStatus('更新失敗（顯示的是先前資料）', 'red');
         }
@@ -1321,7 +1514,7 @@
         .finally(() => setBusy(false));
     }
 
-    function openEditModal(rowIdx, dateStr, classId, seat, name, item) {
+    function openEditModal(rowIdx, dateStr, classId, seat, name, item, period) {
         document.getElementById('editRowIdx').value = rowIdx;
         document.getElementById('editStudentLabel').textContent = `${classId} ${seat}號 - ${name}`;
         document.getElementById('editDate').value = toInputDate(dateStr);
@@ -1331,6 +1524,7 @@
             DEDUCT_ITEMS.map(it => `<option value="${escapeHtml(it)}">➖ ${escapeHtml(it)}</option>`).join('') +
             ADD_ITEMS.map(it => `<option value="${escapeHtml(it)}">➕ ${escapeHtml(it)}</option>`).join('');
         sel.value = item;
+        document.getElementById('editPeriod').innerHTML = periodOptionsHtml(period || '');
         document.getElementById('editModal').style.display = 'flex';
     }
 
@@ -1339,6 +1533,7 @@
         const rowIdx = document.getElementById('editRowIdx').value;
         const newDate = document.getElementById('editDate').value;
         const newItem = document.getElementById('editItem').value;
+        const newPeriod = document.getElementById('editPeriod').value;
         const newCategory = categoryOf(newItem);
 
         document.getElementById('editModal').style.display = 'none';
@@ -1346,7 +1541,7 @@
         toggleLoading(true);
         fetch(scriptURL, {
             method: 'POST',
-            body: JSON.stringify({ action: 'edit', row: rowIdx, date: newDate, item: newItem, category: newCategory }),
+            body: JSON.stringify({ action: 'edit', row: rowIdx, date: newDate, item: newItem, category: newCategory, period: newPeriod }),
             headers: { 'Content-Type': 'text/plain;charset=utf-8' }
         })
         .then(res => res.json())
