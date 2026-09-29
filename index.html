@@ -1131,7 +1131,10 @@
         return String(dateStr).slice(0, 10).replace(/\//g, '-');
     }
 
-    document.getElementById('syncTodayBtn').addEventListener('click', syncTodayData);
+    document.getElementById('syncTodayBtn').addEventListener('click', () => {
+        clearSelectedStudents(); // 按「重新整理」時一併清除已選取的學生
+        syncTodayData();
+    });
 
     let lastLoadedDate = null;
     dateInput.addEventListener('change', () => {
