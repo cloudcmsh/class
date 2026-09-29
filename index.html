@@ -754,6 +754,7 @@
 
     document.getElementById('syncCloudRosterBtn').addEventListener('click', loadStudentsFromCloud);
     function loadStudentsFromCloud() {
+        clearSelectedStudents(); // 同步名單時立即清除已選取的學生，避免沿用舊選取
         showMsg('正在下載雲端名單...', 'blue');
         fetch(scriptURL + '?action=getStudents')
             .then(res => res.json())
@@ -1058,6 +1059,7 @@
             classId: p.classId, seat: p.seat, name: p.name, category: p.category, item: p.item, period: p.period || '', note: ''
         }));
 
+        clearSelectedStudents(); // 一按送出就清除已選取的學生，避免下一批沿用舊選取造成重複紀錄
         setBusy(true);
         showMsg('送出中...', 'blue');
         try {
@@ -1071,7 +1073,6 @@
                 invalidateCache();
                 const applied = (typeof result.applied === 'number') ? result.applied : entries.length;
                 discardPending();
-                clearSelectedStudents(); // 送出後清除已選學生，避免下一批誤記到舊選取
                 showMsg('', 'black');
                 showSuccessModal(applied);
                 await syncTodayData(); // 送出後拉最新，狀態欄改以「已送出」樣式呈現
