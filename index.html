@@ -1071,6 +1071,7 @@
                 invalidateCache();
                 const applied = (typeof result.applied === 'number') ? result.applied : entries.length;
                 discardPending();
+                clearSelectedStudents(); // 送出後清除已選學生，避免下一批誤記到舊選取
                 showMsg('', 'black');
                 showSuccessModal(applied);
                 await syncTodayData(); // 送出後拉最新，狀態欄改以「已送出」樣式呈現
