@@ -552,6 +552,11 @@
             html += `<option value="${k}">${k}（${pad2(h)}:10~${pad2(h + 1)}:00）</option>`;
         }
         sel.innerHTML = html;
+        // 切換節次時：清除選取、重繪狀態欄，只顯示該節紀錄（連堂不錯亂）
+        sel.addEventListener('change', () => {
+            clearSelectedStudents();
+            applyTodayStatus();
+        });
     }
     // 給編輯視窗用的節次下拉（含「未指定」）
     function periodOptionsHtml(current) {
@@ -979,22 +984,25 @@
         if (!cell) return;
         const seat = tr.dataset.seat, cls = tr.dataset.class;
         const target = dateInput.value;
+        const period = currentPeriodTag(); // 只顯示「目前節次」的紀錄，連堂才不會混到上一節
 
-        // 已送出：從紀錄算當日該生所有項目
+        // 已送出：只取當日、該生、且為目前節次的項目
         const saved = [];
         const records = getAnyRecords();
         if (Array.isArray(records)) {
             records.forEach(row => {
                 if (isHeaderRow(row)) return;
                 if (String(row[1]).trim() === '' || String(row[6]).trim() === '') return;
-                if (isSameDate(row[1], target) && sameStudent(row[2], row[3], cls, seat)) {
-                    saved.push({ category: row[5], item: row[6] });
-                }
+                if (!isSameDate(row[1], target) || !sameStudent(row[2], row[3], cls, seat)) return;
+                const recPeriod = String(row[8] == null ? '' : row[8]).trim();
+                if (recPeriod !== period) return; // 非本節的紀錄不顯示
+                saved.push({ category: row[5], item: row[6] });
             });
         }
 
-        // 未送出
-        const pend = pending.filter(p => p.seat === seat && classKey(p.classId) === classKey(cls));
+        // 未送出：只取目前節次
+        const pend = pending.filter(p =>
+            p.seat === seat && classKey(p.classId) === classKey(cls) && p.period === period);
 
         let html = saved.map(s => tagHtml(s.category, s.item, null)).join('');
         html += pend.map(p => tagHtml(p.category, p.item, p.uid)).join('');
